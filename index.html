@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Sticker Pack JSON Generator (WSTicK / Personal Stickers Format)</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f0f0f0; }
+        h1 { text-align: center; }
+        label { display: block; margin: 10px 0 5px; }
+        input, textarea { width: 100%; padding: 8px; box-sizing: border-box; }
+        #stickers { margin-top: 20px; }
+        .sticker-preview { display: inline-block; margin: 10px; text-align: center; vertical-align: top; }
+        .sticker-preview img { width: 100px; height: 100px; object-fit: contain; background: #fff; border: 1px solid #ddd; }
+        button { padding: 10px 20px; background: #25D366; color: white; border: none; cursor: pointer; margin-top: 20px; margin-right: 10px; }
+        button:hover { background: #128C7E; }
+        button:disabled { background: #aaa; cursor: not-allowed; }
+        pre { background: #fff; padding: 10px; border: 1px solid #ddd; overflow-x: auto; }
+        .info { background: #e0ffe0; padding: 10px; border-radius: 5px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>WhatsApp Sticker Pack JSON Generator (for WSTicK / Personal Stickers Apps)</h1>
+    <p class="info">This generates the special JSON format used by apps like <strong>WSTicK</strong> (iOS) and similar Android personal sticker apps. It embeds sticker images as raw WebP base64 (starting with "UklGR...") and tray as PNG base64. Share the downloaded .json file via the app to import the pack directly into WhatsApp.</p>
+
+    <label for="lineUrl">LINE Sticker Product Page URL (optional - fetches PNGs, converts to WebP base64):</label>
+    <input type="text" id="lineUrl" placeholder="e.g. https://store.line.me/stickershop/product/32452565/zh-Hant">
+    <button id="fetchBtn" onclick="fetchLineStickers()">Fetch & Convert from LINE</button>
+    <p id="fetchStatus"></p>
+
+    <hr>
+
+    <label for="packName">Pack Name:</label>
+    <input type="text" id="packName" value="My LINE Pack">
+
+    <label for="publisher">Publisher:</label>
+    <input type="text" id="publisher" value="Converted from LINE">
+
+    <label>Tray Image (required - PNG recommended, will be auto-converted to base64):</label>
+    <input type="file" id="trayFile" accept="image/png,image/jpeg,image/webp">
+
+    <div id="trayPreview"></div>
+
+    <label>Or manually select local sticker files (PNG/JPEG/WebP - will be converted to WebP base64):</label>
+    <input type="file" id="stickerFiles" multiple accept="image/*">
+
+    <div id="stickers"></div>
+
+    <button onclick="generateJSON()">Generate & Download JSON</button>
+
+    <pre id="output"></pre>
+
+    <script>
+        const lineUrlInput = document.getElementById('lineUrl');
+        const fetchBtn = document.getElementById('fetchBtn');
+        const fetchStatus = document.getElementById('fetchStatus');
+        const trayFileInput = document.getElementById('trayFile');
+        const trayPreview = document.getElementById('trayPreview');
+        const stickerFilesInput = document.getElementById('stickerFiles');
+        const stickersDiv = document.getElementById('stickers');
+        const output = document.getElementById('output');
+
+        let trayBase64 = null; // raw base64 string (no prefix)
+        let stickersData = []; // array of {base64: raw webp base64, emojis: []}
+
+        // Tray image handling
+        trayFileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (ev) => {
+                const img = new Image();
+                img.onload = async () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 96;
+                    canvas.height = 96;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, 96, 96);
+                    trayBase64 = canvas.toDataURL('image/png').split(',')[1]; // raw base64
+                    trayPreview.innerHTML = `<h3>Tray Image Preview:</h3><img src="${ev.target.result}" style="width:96px;height:96px;">`;
+                };
+                img.src = ev.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // Local sticker files
+        stickerFilesInput.addEventListener('change', async (e) => {
+            const files = Array.from(e.target.files);
+            stickersData = [];
+            stickersDiv.innerHTML = '<h3>Selected Local Stickers (preview):</h3>';
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const webpBase64 = await convertToWebPBase64(file);
+                stickersData.push({base64: webpBase64, emojis: ['😊']});
+                addStickerPreview(file, i);
+            }
+        });
+
+        async function fetchLineStickers() {
+            const url = lineUrlInput.value.trim();
+            if (!url || !url.includes('store.line.me/stickershop/product/')) {
+                alert('Please enter a valid LINE Sticker Shop product URL!');
+                return;
+            }
+
+            fetchBtn.disabled = true;
+            fetchStatus.textContent = 'Fetching LINE page...';
+            stickersData = [];
+            stickersDiv.innerHTML = '<h3>Fetched LINE Stickers (converting to WebP base64):</h3>';
+
+            try {
+                const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error('Failed to fetch page');
+                const html = await response.text();
+
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+
+                // Pack name from title
+                const titleEl = doc.querySelector('title');
+                let packName = 'LINE Pack';
+                if (titleEl && titleEl.textContent) {
+                    packName = titleEl.textContent.trim().split('–')[0].trim().split('|')[0].trim();
+                }
+                document.getElementById('packName').value = packName;
+
+                const ul = doc.querySelector('ul.FnStickerList');
+                if (!ul) throw new Error('Sticker list not found.');
+
+                const items = ul.querySelectorAll('li[data-preview]');
+                let count = 0;
+                for (const item of items) {
+                    if (count >= 30) break;
+                    const dataPreview = item.getAttribute('data-preview');
+                    if (!dataPreview) continue;
+
+                    let json;
+                    try {
+                        json = JSON.parse(dataPreview.replace(/&quot;/g, '"'));
+                    } catch (e) { continue; }
+
+                    const stickerUrl = json.staticUrl || json.fallbackStaticUrl;
+                    if (!stickerUrl) continue;
+
+                    fetchStatus.textContent = `Converting sticker ${count + 1}/30...`;
+                    const pngBlob = await fetch(stickerUrl).then(r => r.blob());
+                    const webpBase64 = await convertBlobToWebPBase64(pngBlob);
+
+                    stickersData.push({base64: webpBase64, emojis: ['😊']});
+                    addStickerPreviewFromUrl(stickerUrl, count);
+                    count++;
+                }
+
+                if (count === 0) throw new Error('No stickers extracted.');
+
+                // Auto-set tray to first sticker (converted to PNG)
+                if (count > 0) {
+                    const firstUrl = items[0].querySelector('span.mdCMN09Image')?.style.backgroundImage.slice(5, -2) || stickersData[0].url;
+                    const pngBlob = await fetch(firstUrl).then(r => r.blob());
+                    trayBase64 = await convertBlobToPngBase64(pngBlob);
+                    trayPreview.innerHTML = `<h3>Tray Image (auto from first sticker):</h3><img src="${firstUrl}" style="width:96px;height:96px;">`;
+                }
+
+                fetchStatus.textContent = `Success! Converted ${count} stickers to WebP base64.`;
+            } catch (err) {
+                fetchStatus.textContent = 'Error: ' + err.message;
+                console.error(err);
+            } finally {
+                fetchBtn.disabled = false;
+            }
+        }
+
+        function addStickerPreview(file, index) {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const div = document.createElement('div');
+                div.className = 'sticker-preview';
+                div.innerHTML = `
+                    <img src="${ev.target.result}">
+                    <br>Emojis: <input type="text" id="emojis-${index}" value="😊" placeholder="comma-separated">
+                `;
+                stickersDiv.appendChild(div);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function addStickerPreviewFromUrl(url, index) {
+            const div = document.createElement('div');
+            div.className = 'sticker-preview';
+            div.innerHTML = `
+                <img src="${url}">
+                <br>Emojis: <input type="text" id="emojis-${index}" value="😊" placeholder="comma-separated">
+            `;
+            stickersDiv.appendChild(div);
+        }
+
+        async function convertToWebPBase64(file) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 512;
+                    canvas.height = 512;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, 512, 512);
+                    canvas.toBlob((blob) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result.split(',')[1]);
+                        reader.readAsDataURL(blob);
+                    }, 'image/webp', 0.8);
+                };
+                img.src = URL.createObjectURL(file);
+            });
+        }
+
+        async function convertBlobToWebPBase64(blob) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 512;
+                    canvas.height = 512;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, 512, 512);
+                    canvas.toBlob((webpBlob) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result.split(',')[1]);
+                        reader.readAsDataURL(webpBlob);
+                    }, 'image/webp', 0.8);
+                };
+                img.src = URL.createObjectURL(blob);
+            });
+        }
+
+        async function convertBlobToPngBase64(blob) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 96;
+                    canvas.height = 96;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, 96, 96);
+                    resolve(canvas.toDataURL('image/png').split(',')[1]);
+                };
+                img.src = URL.createObjectURL(blob);
+            });
+        }
+
+        function generateJSON() {
+            if (!trayBase64) {
+                alert('Please select a tray image!');
+                return;
+            }
+            if (stickersData.length < 3 || stickersData.length > 30) {
+                alert('Pack must have 3–30 stickers!');
+                return;
+            }
+
+            const packName = document.getElementById('packName').value.trim() || 'My Pack';
+            const publisher = document.getElementById('publisher').value.trim() || 'Me';
+
+            const stickers = stickersData.map((sticker, index) => {
+                const emojisInput = document.getElementById(`emojis-${index}`);
+                const emojisVal = emojisInput ? emojisInput.value.trim() : '';
+                const emojis = emojisVal ? emojisVal.split(',').map(e => e.trim()).filter(e => e) : [];
+
+                return {
+                    image_data: sticker.base64,
+                    emojis: emojis,
+                    animated_sticker_pack: false
+                };
+            });
+
+            const jsonData = {
+                name: packName,
+                publisher: publisher,
+                tray_image: trayBase64,
+                ios_app_store_link: "https://itunes.apple.com/app/wstick/id1442273161?mt=8",
+                android_play_store_link: "https://play.google.com/store/apps/details?id=com.wstick.hk",
+                identifier: new Date().toISOString().slice(0,10).replace(/-/g,'') + '-' + Math.random().toString(36).substr(2,9),
+                stickers: stickers
+            };
+
+            const prettyJSON = JSON.stringify(jsonData, null, 4);
+            output.textContent = prettyJSON;
+
+            const blob = new Blob([prettyJSON], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${packName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
