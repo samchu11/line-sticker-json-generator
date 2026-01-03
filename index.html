@@ -101,7 +101,7 @@
 <body>
     <h1>WhatsApp Sticker Pack JSON Generator<br><small>(for WSTicK / Personal Stickers Apps)</small></h1>
     
-    <p class="info">Generates ready-to-import JSON for WhatsApp sticker apps. Works great on mobile! Just paste a LINE URL, fetch, and download.</p>
+    <p class="info">Generates ready-to-import JSON for WhatsApp sticker apps. On iPhone, the 📋 Paste button may not work due to Safari restrictions. Instead: long-press the URL field → choose "Paste" from the menu.</p>
 
     <label>LINE Sticker Product Page URL (optional):</label>
     <div class="url-row">
@@ -136,9 +136,6 @@
     <pre id="output"></pre>
 
     <script>
-        // ... (all previous JavaScript code remains exactly the same)
-        // Only the HTML/CSS above has been updated for full mobile responsiveness
-
         const lineUrlInput = document.getElementById('lineUrl');
         const fetchBtn = document.getElementById('fetchBtn');
         const fetchStatus = document.getElementById('fetchStatus');
@@ -152,17 +149,22 @@
         let stickersData = [];
 
         async function pasteFromClipboard() {
+            if (!navigator.clipboard || !navigator.clipboard.readText) {
+                fetchStatus.textContent = 'Clipboard API not supported on this browser/device.';
+                return;
+            }
             try {
                 const text = await navigator.clipboard.readText();
                 lineUrlInput.value = text.trim();
-                fetchStatus.textContent = 'Pasted from clipboard!';
-                setTimeout(() => fetchStatus.textContent = '', 2000);
+                fetchStatus.textContent = 'Pasted successfully!';
+                setTimeout(() => fetchStatus.textContent = '', 3000);
             } catch (err) {
-                fetchStatus.textContent = 'Failed to paste: ' + err.message;
+                fetchStatus.textContent = 'Paste failed (common on iPhone Safari). Long-press the field and select "Paste" instead.';
                 console.error(err);
             }
         }
 
+        // Rest of the script remains unchanged...
         trayFileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
