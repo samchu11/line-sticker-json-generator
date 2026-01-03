@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WhatsApp Sticker Pack JSON Generator (WSTicK / Personal Stickers Format)</title>
+    <title>WhatsApp Sticker Pack JSON Generator (for WSTicK / Personal Stickers Apps)</title>
     <style>
         body { 
             font-family: Arial, sans-serif; 
@@ -113,7 +113,7 @@
 <body>
     <h1>WhatsApp Sticker Pack JSON Generator<br><small>(for WSTicK / Personal Stickers Apps)</small></h1>
     
-    <p class="info">Generates ready-to-import JSON for WhatsApp sticker apps. Tray image is PNG (96×96), stickers are WebP (512×512). You can remove individual stickers with the × button.</p>
+    <p class="info">Fixed import issues: Tray image is now PNG base64 (96×96), stickers are WebP base64 (512×512). This exactly matches the format used by WSTicK and similar apps.</p>
 
     <label>LINE Sticker Product Page URL (optional):</label>
     <div class="url-row">
@@ -329,7 +329,7 @@
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
-                    const dataUrl = canvas.toDataURL(mime, 0.9);
+                    const dataUrl = canvas.toDataURL(mime, 1.0); // max quality
                     resolve(dataUrl.split(',')[1]);
                 };
                 img.src = URL.createObjectURL(file);
@@ -345,7 +345,7 @@
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
-                    const dataUrl = canvas.toDataURL(mime, 0.9);
+                    const dataUrl = canvas.toDataURL(mime, 1.0); // max quality
                     resolve(dataUrl.split(',')[1]);
                 };
                 img.src = URL.createObjectURL(blob);
@@ -387,7 +387,7 @@
                 tray_image: trayBase64,
                 ios_app_store_link: "https://itunes.apple.com/app/wstick/id1442273161?mt=8",
                 android_play_store_link: "https://play.google.com/store/apps/details?id=com.wstick.hk",
-                identifier: new Date().toISOString().slice(0,10).replace(/-/g,'') + '-' + Math.random().toString(36).substr(2,9),
+                identifier: Date.now().toString().slice(-10) + '-' + Math.random().toString(36).substr(2,9),
                 stickers: stickers
             };
 
