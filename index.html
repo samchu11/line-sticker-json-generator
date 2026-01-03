@@ -17,31 +17,38 @@
         button:disabled { background: #aaa; cursor: not-allowed; }
         pre { background: #fff; padding: 10px; border: 1px solid #ddd; overflow-x: auto; }
         .info { background: #e0ffe0; padding: 10px; border-radius: 5px; margin: 10px 0; }
+        .url-row { display: flex; gap: 10px; align-items: end; }
+        .url-row input { flex: 1; }
+        .paste-btn { padding: 10px 15px; background: #128C7E; white-space: nowrap; }
+        .paste-btn:hover { background: #0e5c52; }
     </style>
 </head>
 <body>
     <h1>WhatsApp Sticker Pack JSON Generator (for WSTicK / Personal Stickers Apps)</h1>
-    <p class="info">This generates the special JSON format used by apps like <strong>WSTicK</strong> (iOS) and similar Android personal sticker apps. It embeds sticker images as raw WebP base64 (starting with "UklGR...") and tray as PNG base64. Share the downloaded .json file via the app to import the pack directly into WhatsApp.</p>
+    <p class="info">Generates the JSON format used by WSTicK (iOS) and similar Android personal sticker apps. Embeds stickers as WebP base64. The downloaded file will be named exactly as your Pack Name.</p>
 
-    <label for="lineUrl">LINE Sticker Product Page URL (optional - fetches PNGs, converts to WebP base64):</label>
-    <input type="text" id="lineUrl" placeholder="e.g. https://store.line.me/stickershop/product/32452565/zh-Hant">
-    <button id="fetchBtn" onclick="fetchLineStickers()">Fetch & Convert from LINE</button>
+    <label>LINE Sticker Product Page URL (optional):</label>
+    <div class="url-row">
+        <input type="text" id="lineUrl" placeholder="e.g. https://store.line.me/stickershop/product/32452565/zh-Hant">
+        <button class="paste-btn" onclick="pasteFromClipboard()">📋 Paste</button>
+        <button id="fetchBtn" onclick="fetchLineStickers()">Fetch & Convert from LINE</button>
+    </div>
     <p id="fetchStatus"></p>
 
     <hr>
 
-    <label for="packName">Pack Name:</label>
+    <label for="packName">Pack Name (will be used as filename too):</label>
     <input type="text" id="packName" value="My LINE Pack">
 
     <label for="publisher">Publisher:</label>
     <input type="text" id="publisher" value="Converted from LINE">
 
-    <label>Tray Image (required - PNG recommended, will be auto-converted to base64):</label>
+    <label>Tray Image (required - PNG recommended):</label>
     <input type="file" id="trayFile" accept="image/png,image/jpeg,image/webp">
 
     <div id="trayPreview"></div>
 
-    <label>Or manually select local sticker files (PNG/JPEG/WebP - will be converted to WebP base64):</label>
+    <label>Or manually select local sticker files (PNG/JPEG/WebP):</label>
     <input type="file" id="stickerFiles" multiple accept="image/*">
 
     <div id="stickers"></div>
@@ -60,8 +67,21 @@
         const stickersDiv = document.getElementById('stickers');
         const output = document.getElementById('output');
 
-        let trayBase64 = null; // raw base64 string (no prefix)
-        let stickersData = []; // array of {base64: raw webp base64, emojis: []}
+        let trayBase64 = null;
+        let stickersData = [];
+
+        // Paste from clipboard
+        async function pasteFromClipboard() {
+            try {
+                const text = await navigator.clipboard.readText();
+                lineUrlInput.value = text.trim();
+                fetchStatus.textContent = 'Pasted from clipboard!';
+                setTimeout(() => fetchStatus.textContent = '', 2000);
+            } catch (err) {
+                fetchStatus.textContent = 'Failed to paste: ' + err.message + ' (permission denied or not supported)';
+                console.error(err);
+            }
+        }
 
         // Tray image handling
         trayFileInput.addEventListener('change', (e) => {
@@ -76,7 +96,7 @@
                     canvas.height = 96;
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, 96, 96);
-                    trayBase64 = canvas.toDataURL('image/png').split(',')[1]; // raw base64
+                    trayBase64 = canvas.toDataURL('image/png').split(',')[1];
                     trayPreview.innerHTML = `<h3>Tray Image Preview:</h3><img src="${ev.target.result}" style="width:96px;height:96px;">`;
                 };
                 img.src = ev.target.result;
@@ -118,7 +138,6 @@
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, 'text/html');
 
-                // Pack name from title
                 const titleEl = doc.querySelector('title');
                 let packName = 'LINE Pack';
                 if (titleEl && titleEl.textContent) {
@@ -155,12 +174,16 @@
 
                 if (count === 0) throw new Error('No stickers extracted.');
 
-                // Auto-set tray to first sticker (converted to PNG)
+                // Auto-set tray from first sticker
                 if (count > 0) {
-                    const firstUrl = items[0].querySelector('span.mdCMN09Image')?.style.backgroundImage.slice(5, -2) || stickersData[0].url;
-                    const pngBlob = await fetch(firstUrl).then(r => r.blob());
-                    trayBase64 = await convertBlobToPngBase64(pngBlob);
-                    trayPreview.innerHTML = `<h3>Tray Image (auto from first sticker):</h3><img src="${firstUrl}" style="width:96px;height:96px;">`;
+                    const firstItem = items[0];
+                    const bgStyle = firstItem.querySelector('span.mdCMN09Image')?.style.backgroundImage;
+                    const firstUrl = bgStyle ? bgStyle.slice(5, -2) : '';
+                    if (firstUrl) {
+                        const pngBlob = await fetch(firstUrl).then(r => r.blob());
+                        trayBase64 = await convertBlobToPngBase64(pngBlob);
+                        trayPreview.innerHTML = `<h3>Tray Image (auto from first sticker):</h3><img src="${firstUrl}" style="width:96px;height:96px;">`;
+                    }
                 }
 
                 fetchStatus.textContent = `Success! Converted ${count} stickers to WebP base64.`;
@@ -251,7 +274,7 @@
 
         function generateJSON() {
             if (!trayBase64) {
-                alert('Please select a tray image!');
+                alert('Please select or auto-generate a tray image!');
                 return;
             }
             if (stickersData.length < 3 || stickersData.length > 30) {
@@ -259,7 +282,11 @@
                 return;
             }
 
-            const packName = document.getElementById('packName').value.trim() || 'My Pack';
+            const packName = document.getElementById('packName').value.trim();
+            if (!packName) {
+                alert('Please enter a Pack Name!');
+                return;
+            }
             const publisher = document.getElementById('publisher').value.trim() || 'Me';
 
             const stickers = stickersData.map((sticker, index) => {
@@ -287,11 +314,16 @@
             const prettyJSON = JSON.stringify(jsonData, null, 4);
             output.textContent = prettyJSON;
 
+            const safeFilename = packName
+                .replace(/[/\\?%*:|"<>]/g, '_')
+                .trim()
+                + '.json';
+
             const blob = new Blob([prettyJSON], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${packName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.json`;
+            a.download = safeFilename;
             a.click();
             URL.revokeObjectURL(url);
         }
